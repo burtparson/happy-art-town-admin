@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Happy Art Town - Admin Panel</title>
+    
+    <!-- Tailwind CSS via CDN - Development only -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Suppress production warnings for demo
+      tailwind.config = {
+        theme: {
+          extend: {
+            animation: {
+              'bounce-slow': 'bounce 2s infinite',
+            }
+          }
+        }
+      }
+      
+      // Hide CDN warning in console
+      if (typeof console !== 'undefined') {
+        const originalWarn = console.warn;
+        console.warn = function(...args) {
+          if (args[0] && args[0].includes && args[0].includes('cdn.tailwindcss.com')) {
+            return; // Skip Tailwind CDN warnings
+          }
+          originalWarn.apply(console, args);
+        };
+      }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
