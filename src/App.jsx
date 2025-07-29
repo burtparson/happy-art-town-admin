@@ -9,6 +9,7 @@ import {
 
 // Real Supabase client setup
 import { createClient } from '@supabase/supabase-js'
+import { uploadImage, validateImage, createImagePreview, deleteImage } from './lib/imageUpload'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -1095,12 +1096,58 @@ const AdminTool = () => {
       description: course?.description || '',
       age_group: course?.age_group || '2-4',
       image_emoji: course?.image_emoji || '🎨',
+      image_url: course?.image_url || '',
       duration: course?.duration || '',
       lessons: course?.lessons || 0,
       difficulty: course?.difficulty || 'Beginner'
     });
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imagePreview, setImagePreview] = useState(course?.image_url || null);
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    const handleImageSelect = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const validation = validateImage(file);
+      if (!validation.isValid) {
+        showNotification(validation.error, 'error');
+        return;
+      }
+
+      setSelectedFile(file);
+      
+      try {
+        const preview = await createImagePreview(file);
+        setImagePreview(preview);
+      } catch (error) {
+        showNotification('Error creating preview', 'error');
+      }
+    };
+
+    const handleImageUpload = async () => {
+      if (!selectedFile || usingMockData) {
+        if (usingMockData) {
+          showNotification('Image upload not available in mock mode', 'error');
+        }
+        return null;
+      }
+
+      setUploadingImage(true);
+      try {
+        const result = await uploadImage(selectedFile, supabase);
+        setFormData(prev => ({ ...prev, image_url: result.url }));
+        showNotification('Image uploaded successfully!');
+        return result.url;
+      } catch (error) {
+        showNotification('Image upload failed: ' + error.message, 'error');
+        return null;
+      } finally {
+        setUploadingImage(false);
+      }
+    };
 
     const handleSubmit = async (e) => {
       e.preventDefault();
@@ -1120,7 +1167,17 @@ const AdminTool = () => {
       setIsSubmitting(true);
       
       try {
-        await onSave(formData, 'course');
+        let finalFormData = { ...formData };
+        
+        // Upload image if selected
+        if (selectedFile && !usingMockData) {
+          const uploadedUrl = await handleImageUpload();
+          if (uploadedUrl) {
+            finalFormData.image_url = uploadedUrl;
+          }
+        }
+        
+        await onSave(finalFormData, 'course');
         console.log('✅ Form save completed successfully');
       } catch (error) {
         console.error('❌ Form save failed:', error);
@@ -1265,6 +1322,57 @@ const AdminTool = () => {
               </div>
             </div>
 
+            {/* Image Upload Section */}
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Course Image</label>
+              <div className="flex items-start space-x-4">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-purple-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="course-image-upload"
+                      disabled={isSubmitting || uploadingImage}
+                    />
+                    <label 
+                      htmlFor="course-image-upload" 
+                      className="cursor-pointer flex flex-col items-center space-y-2"
+                    >
+                      <ImageIcon size={32} className="text-gray-400" />
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-purple-600">Click to upload</span> or drag and drop
+                      </div>
+                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</div>
+                    </label>
+                  </div>
+                  {selectedFile && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      Selected: {selectedFile.name}
+                    </div>
+                  )}
+                </div>
+                
+                {imagePreview && (
+                  <div className="w-24 h-24">
+                    <img
+                      src={imagePreview}
+                      alt="Preview"
+                      className="w-full h-full object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {uploadingImage && (
+                <div className="mt-2 flex items-center space-x-2 text-sm text-purple-600">
+                  <Upload size={16} className="animate-bounce" />
+                  <span>Uploading image...</span>
+                </div>
+              )}
+            </div>
+
             <div className="flex space-x-3 pt-4 border-t">
               <motion.button
                 type="submit"
@@ -1300,12 +1408,79 @@ const AdminTool = () => {
       content: article?.content || '',
       category: article?.category || 'tips',
       image_emoji: article?.image_emoji || '📝',
+      image_url: article?.image_url || '',
       read_time: article?.read_time || ''
     });
 
-    const handleSubmit = (e) => {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imagePreview, setImagePreview] = useState(article?.image_url || null);
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    const handleImageSelect = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const validation = validateImage(file);
+      if (!validation.isValid) {
+        showNotification(validation.error, 'error');
+        return;
+      }
+
+      setSelectedFile(file);
+      
+      try {
+        const preview = await createImagePreview(file);
+        setImagePreview(preview);
+      } catch (error) {
+        showNotification('Error creating preview', 'error');
+      }
+    };
+
+    const handleImageUpload = async () => {
+      if (!selectedFile || usingMockData) {
+        if (usingMockData) {
+          showNotification('Image upload not available in mock mode', 'error');
+        }
+        return null;
+      }
+
+      setUploadingImage(true);
+      try {
+        const result = await uploadImage(selectedFile, supabase);
+        setFormData(prev => ({ ...prev, image_url: result.url }));
+        showNotification('Image uploaded successfully!');
+        return result.url;
+      } catch (error) {
+        showNotification('Image upload failed: ' + error.message, 'error');
+        return null;
+      } finally {
+        setUploadingImage(false);
+      }
+    };
+
+    const handleSubmit = async (e) => {
       e.preventDefault();
-      onSave(formData, 'article');
+      
+      setIsSubmitting(true);
+      
+      try {
+        let finalFormData = { ...formData };
+        
+        // Upload image if selected
+        if (selectedFile && !usingMockData) {
+          const uploadedUrl = await handleImageUpload();
+          if (uploadedUrl) {
+            finalFormData.image_url = uploadedUrl;
+          }
+        }
+        
+        await onSave(finalFormData, 'article');
+      } catch (error) {
+        console.error('❌ Form save failed:', error);
+      } finally {
+        setIsSubmitting(false);
+      }
     };
 
     return (
@@ -1404,23 +1579,75 @@ const AdminTool = () => {
               </div>
             </div>
 
+            {/* Image Upload Section */}
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Article Image</label>
+              <div className="flex items-start space-x-4">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="article-image-upload"
+                      disabled={isSubmitting || uploadingImage}
+                    />
+                    <label 
+                      htmlFor="article-image-upload" 
+                      className="cursor-pointer flex flex-col items-center space-y-2"
+                    >
+                      <ImageIcon size={32} className="text-gray-400" />
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-green-600">Click to upload</span> or drag and drop
+                      </div>
+                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</div>
+                    </label>
+                  </div>
+                  {selectedFile && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      Selected: {selectedFile.name}
+                    </div>
+                  )}
+                </div>
+                
+                {imagePreview && (
+                  <div className="w-24 h-24">
+                    <img
+                      src={imagePreview}
+                      alt="Preview"
+                      className="w-full h-full object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {uploadingImage && (
+                <div className="mt-2 flex items-center space-x-2 text-sm text-green-600">
+                  <Upload size={16} className="animate-bounce" />
+                  <span>Uploading image...</span>
+                </div>
+              )}
+            </div>
+
             <div className="flex space-x-3 pt-4">
               <motion.button
                 type="submit"
-                className="flex-1 bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-lg font-medium flex items-center justify-center"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={loading}
+                className="flex-1 bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting || uploadingImage}
               >
                 <Save size={18} className="mr-2" />
-                {loading ? 'Saving...' : 'Save Article'}
+                {isSubmitting ? 'Saving...' : 'Save Article'}
               </motion.button>
               <motion.button
                 type="button"
                 onClick={onCancel}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting || uploadingImage}
               >
                 Cancel
               </motion.button>

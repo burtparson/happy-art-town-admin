@@ -9,6 +9,7 @@ import {
 
 // Real Supabase client setup
 import { createClient } from '@supabase/supabase-js'
+import { uploadImage, validateImage, createImagePreview, deleteImage } from './lib/imageUpload'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
@@ -89,10 +90,18 @@ const mockArticlesData = [
   }
 ];
 
+const mockSettingsData = {
+  site_name: 'Happy Art Town',
+  site_description: 'Where creativity comes alive! Join thousands of young artists learning to draw, paint, and create amazing art!',
+  contact_email: 'admin@happyarttown.com',
+  max_courses_per_user: '10'
+};
+
 const AdminTool = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [courses, setCourses] = useState([]);
   const [articles, setArticles] = useState([]);
+  const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -102,10 +111,12 @@ const AdminTool = () => {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [usingMockData, setUsingMockData] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   // Load data from Supabase on component mount
   useEffect(() => {
     loadData();
+    loadSettings();
   }, []);
 
   const loadData = async () => {
@@ -114,6 +125,11 @@ const AdminTool = () => {
     
     try {
       console.log('🔄 Loading data from Supabase...');
+
+      // Check if we have valid Supabase credentials
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Supabase credentials not found');
+      }
 
       // Load courses from Supabase
       const { data: coursesData, error: coursesError } = await supabase
@@ -129,38 +145,26 @@ const AdminTool = () => {
 
       if (coursesError) {
         console.error('❌ Error loading courses:', coursesError);
-        // Fall back to mock data
-        console.log('📦 Using mock courses data');
-        setCourses(mockCoursesData);
-        setUsingMockData(true);
-      } else {
-        console.log('✅ Raw courses data:', coursesData);
-        setCourses(coursesData || []);
-        setUsingMockData(false);
+        throw coursesError;
       }
 
       if (articlesError) {
         console.error('❌ Error loading articles:', articlesError);
-        // Fall back to mock data
-        console.log('📦 Using mock articles data');
-        setArticles(mockArticlesData);
-        setUsingMockData(true);
-      } else {
-        console.log('✅ Raw articles data:', articlesData);
-        setArticles(articlesData || []);
+        throw articlesError;
       }
 
-      // If either failed, show error but continue with available data
-      if (coursesError || articlesError) {
-        setError(`Database connection issue. Using ${usingMockData ? 'mock' : 'partial'} data.`);
-      }
-
+      console.log('✅ Courses data:', coursesData);
+      console.log('✅ Articles data:', articlesData);
+      
+      setCourses(coursesData || []);
+      setArticles(articlesData || []);
+      setUsingMockData(false);
       setLastUpdated(new Date());
       console.log('🎉 Data loading completed!');
       
     } catch (err) {
       console.error('💥 Error loading data:', err);
-      setError(err.message);
+      setError(`Database connection failed: ${err.message}`);
       
       // Fall back to mock data on any error
       console.log('📦 Using mock data due to error');
@@ -170,6 +174,100 @@ const AdminTool = () => {
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSettings = async () => {
+    setSettingsLoading(true);
+    
+    try {
+      console.log('🔄 Loading settings from Supabase...');
+
+      // Check if we have valid Supabase credentials
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Supabase credentials not found');
+      }
+
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('*');
+
+      if (settingsError) {
+        console.error('❌ Error loading settings:', settingsError);
+        throw settingsError;
+      }
+
+      console.log('✅ Settings data:', settingsData);
+      
+      // Convert array of settings to object
+      const settingsObj = {};
+      if (settingsData) {
+        settingsData.forEach(setting => {
+          settingsObj[setting.key] = setting.value;
+        });
+      }
+      
+      setSettings(settingsObj);
+      console.log('🎉 Settings loading completed!');
+      
+    } catch (err) {
+      console.error('💥 Error loading settings:', err);
+      
+      // Fall back to mock settings on any error
+      console.log('📦 Using mock settings due to error');
+      setSettings(mockSettingsData);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const saveSettings = async (newSettings) => {
+    setSettingsLoading(true);
+    
+    try {
+      console.log('💾 Saving settings to Supabase...', newSettings);
+
+      if (usingMockData) {
+        // Mock data behavior
+        setSettings(newSettings);
+        showNotification('Settings saved successfully! (Mock data)');
+        return;
+      }
+
+      // Check if we have valid Supabase credentials
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Supabase credentials not found');
+      }
+
+      // Update each setting individually
+      for (const [key, value] of Object.entries(newSettings)) {
+        console.log(`🔄 Updating setting: ${key} = ${value}`);
+        
+        const { error } = await supabase
+          .from('settings')
+          .upsert({ 
+            key: key, 
+            value: value,
+            updated_at: new Date().toISOString()
+          }, { 
+            onConflict: 'key' 
+          });
+
+        if (error) {
+          console.error(`❌ Error updating setting ${key}:`, error);
+          throw error;
+        }
+      }
+
+      console.log('✅ All settings saved successfully');
+      setSettings(newSettings);
+      showNotification('Settings saved successfully!');
+      
+    } catch (err) {
+      console.error('💥 Error saving settings:', err);
+      showNotification('Error saving settings: ' + err.message, 'error');
+    } finally {
+      setSettingsLoading(false);
     }
   };
 
@@ -198,21 +296,35 @@ const AdminTool = () => {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from(type === 'course' ? 'courses' : 'articles')
-        .update({ is_published: !item.is_published })
-        .eq('id', item.id);
+      console.log(`🔄 Toggling publish status for ${type} ID: ${item.id}`);
+      
+      const tableName = type === 'course' ? 'courses' : 'articles';
+      const newStatus = !item.is_published;
+      
+      const { data, error } = await supabase
+        .from(tableName)
+        .update({ 
+          is_published: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', item.id)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error updating status:', error);
+        throw error;
+      }
+
+      console.log('✅ Status updated:', data);
 
       // Update local state
       if (type === 'course') {
         setCourses(prev => prev.map(c => 
-          c.id === item.id ? { ...c, is_published: !c.is_published } : c
+          c.id === item.id ? { ...c, is_published: newStatus } : c
         ));
       } else {
         setArticles(prev => prev.map(a => 
-          a.id === item.id ? { ...a, is_published: !a.is_published } : a
+          a.id === item.id ? { ...a, is_published: newStatus } : a
         ));
       }
 
@@ -220,6 +332,7 @@ const AdminTool = () => {
         `${type} ${item.is_published ? 'unpublished' : 'published'} successfully!`
       );
     } catch (error) {
+      console.error('💥 Error updating status:', error);
       showNotification('Error updating status: ' + error.message, 'error');
     }
     setLoading(false);
@@ -241,12 +354,21 @@ const AdminTool = () => {
     
     setLoading(true);
     try {
+      console.log(`🗑️ Deleting ${type} ID: ${id}`);
+      
+      const tableName = type === 'course' ? 'courses' : 'articles';
+      
       const { error } = await supabase
-        .from(type === 'course' ? 'courses' : 'articles')
+        .from(tableName)
         .delete()
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error deleting:', error);
+        throw error;
+      }
+
+      console.log('✅ Successfully deleted');
 
       // Update local state
       if (type === 'course') {
@@ -257,19 +379,24 @@ const AdminTool = () => {
 
       showNotification(`${type} deleted successfully!`);
     } catch (error) {
+      console.error('💥 Error deleting:', error);
       showNotification('Error deleting item: ' + error.message, 'error');
     }
     setLoading(false);
   };
 
   const handleSave = async (formData, type) => {
+    console.log(`💾 Starting save operation for ${type}:`, formData);
     setLoading(true);
+    
     try {
       if (editingItem) {
         // Update existing item
+        console.log(`🔄 Updating existing ${type} with ID:`, editingItem.id);
+        
         if (usingMockData) {
           // Mock data behavior
-          console.log('Updating', type, editingItem.id, 'with data:', formData);
+          console.log('📦 Mock update:', type, editingItem.id, 'with data:', formData);
           
           if (type === 'course') {
             setCourses(prev => prev.map(c => 
@@ -283,38 +410,59 @@ const AdminTool = () => {
           showNotification(`${type} updated successfully! (Mock data)`);
         } else {
           // Real Supabase update
-          const { error } = await supabase
-            .from(type === 'course' ? 'courses' : 'articles')
-            .update(formData)
-            .eq('id', editingItem.id);
+          const tableName = type === 'course' ? 'courses' : 'articles';
+          
+          const updateData = {
+            ...formData,
+            updated_at: new Date().toISOString()
+          };
+          
+          console.log(`🔄 Sending update to Supabase table "${tableName}":`, updateData);
+          
+          const { data, error } = await supabase
+            .from(tableName)
+            .update(updateData)
+            .eq('id', editingItem.id)
+            .select();
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ Supabase update error:', error);
+            throw error;
+          }
 
-          // Update local state
-          if (type === 'course') {
-            setCourses(prev => prev.map(c => 
-              c.id === editingItem.id ? { ...c, ...formData, updated_at: new Date().toISOString() } : c
-            ));
-          } else {
-            setArticles(prev => prev.map(a => 
-              a.id === editingItem.id ? { ...a, ...formData, updated_at: new Date().toISOString() } : a
-            ));
+          console.log('✅ Supabase update success:', data);
+
+          // Update local state with returned data
+          if (data && data.length > 0) {
+            const updatedItem = data[0];
+            if (type === 'course') {
+              setCourses(prev => prev.map(c => 
+                c.id === editingItem.id ? updatedItem : c
+              ));
+            } else {
+              setArticles(prev => prev.map(a => 
+                a.id === editingItem.id ? updatedItem : a
+              ));
+            }
           }
           showNotification(`${type} updated successfully!`);
         }
         
       } else {
         // Create new item
+        console.log(`➕ Creating new ${type}`);
+        
         if (usingMockData) {
           // Mock data behavior
           const newItem = { 
             ...formData, 
             id: Date.now(), 
             created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
             is_published: false 
           };
           
-          console.log('Creating new', type, 'with data:', newItem);
+          console.log('📦 Mock create new', type, 'with data:', newItem);
           
           if (type === 'course') {
             setCourses(prev => [newItem, ...prev]);
@@ -324,30 +472,67 @@ const AdminTool = () => {
           showNotification(`${type} created successfully! (Mock data)`);
         } else {
           // Real Supabase insert
+          const tableName = type === 'course' ? 'courses' : 'articles';
+          
+          const insertData = {
+            ...formData,
+            is_published: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          console.log(`➕ Sending insert to Supabase table "${tableName}":`, insertData);
+
           const { data, error } = await supabase
-            .from(type === 'course' ? 'courses' : 'articles')
-            .insert([formData])
+            .from(tableName)
+            .insert([insertData])
             .select();
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ Supabase insert error:', error);
+            throw error;
+          }
 
-          const newItem = data[0];
-          if (type === 'course') {
-            setCourses(prev => [newItem, ...prev]);
-          } else {
-            setArticles(prev => [newItem, ...prev]);
+          console.log('✅ Supabase insert success:', data);
+
+          if (data && data.length > 0) {
+            const newItem = data[0];
+            if (type === 'course') {
+              setCourses(prev => [newItem, ...prev]);
+            } else {
+              setArticles(prev => [newItem, ...prev]);
+            }
           }
           showNotification(`${type} created successfully!`);
         }
       }
 
+      // Close form and reset state
+      console.log('✅ Save operation completed, closing form');
       setShowForm(false);
       setEditingItem(null);
+      
     } catch (error) {
-      showNotification('Error saving item: ' + error.message, 'error');
-      console.error('Save error:', error);
+      console.error('💥 Save operation failed:', error);
+      
+      // Show detailed error message
+      let errorMessage = 'Error saving item: ';
+      if (error.message) {
+        errorMessage += error.message;
+      } else if (error.details) {
+        errorMessage += error.details;
+      } else {
+        errorMessage += 'Unknown error occurred';
+      }
+      
+      showNotification(errorMessage, 'error');
+      
+      // Don't close the form on error so user can try again
+      console.log('❌ Keeping form open due to error');
+    } finally {
+      setLoading(false);
+      console.log('🏁 Save operation ended');
     }
-    setLoading(false);
   };
 
   const filteredCourses = courses.filter(course => {
@@ -469,7 +654,7 @@ const AdminTool = () => {
 
   const Sidebar = () => (
     <motion.div 
-      className="bg-white shadow-lg w-64 min-h-screen fixed left-0 top-0 z-40"
+      className="bg-white shadow-lg w-64 min-h-screen fixed left-0 top-0 z-50"
       initial={{ x: -100, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.5 }}
@@ -478,7 +663,7 @@ const AdminTool = () => {
         <div className="flex items-center space-x-3 mb-8">
           <div className="text-3xl">🎨</div>
           <div>
-            <h1 className="text-xl font-bold text-gray-800">Happy Art</h1>
+            <h1 className="text-xl font-bold text-gray-800">{settings.site_name || 'Happy Art'}</h1>
             <p className="text-sm text-gray-500">Admin Panel</p>
           </div>
         </div>
@@ -512,7 +697,7 @@ const AdminTool = () => {
 
   const Header = () => (
     <motion.div 
-      className="bg-white shadow-sm border-b p-4 ml-64"
+      className="bg-white shadow-sm border-b p-4 ml-64 relative z-10"
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
     >
@@ -524,14 +709,16 @@ const AdminTool = () => {
         
         <div className="flex items-center space-x-4">
           <motion.button
-            onClick={loadData}
+            onClick={activeTab === 'settings' ? () => { loadData(); loadSettings(); } : loadData}
             className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
             whileHover={{ scale: 1.02 }}
-            disabled={loading}
+            disabled={loading || settingsLoading}
             title="Refresh data from database"
           >
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-            <span className="hidden md:inline">{loading ? 'Loading...' : 'Refresh'}</span>
+            <RefreshCw size={18} className={(loading || settingsLoading) ? 'animate-spin' : ''} />
+            <span className="hidden md:inline">
+              {(loading || settingsLoading) ? 'Loading...' : 'Refresh'}
+            </span>
           </motion.button>
           
           {(activeTab === 'courses' || activeTab === 'articles') && (
@@ -909,14 +1096,95 @@ const AdminTool = () => {
       description: course?.description || '',
       age_group: course?.age_group || '2-4',
       image_emoji: course?.image_emoji || '🎨',
+      image_url: course?.image_url || '',
       duration: course?.duration || '',
       lessons: course?.lessons || 0,
       difficulty: course?.difficulty || 'Beginner'
     });
 
-    const handleSubmit = (e) => {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imagePreview, setImagePreview] = useState(course?.image_url || null);
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    const handleImageSelect = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const validation = validateImage(file);
+      if (!validation.isValid) {
+        showNotification(validation.error, 'error');
+        return;
+      }
+
+      setSelectedFile(file);
+      
+      try {
+        const preview = await createImagePreview(file);
+        setImagePreview(preview);
+      } catch (error) {
+        showNotification('Error creating preview', 'error');
+      }
+    };
+
+    const handleImageUpload = async () => {
+      if (!selectedFile || usingMockData) {
+        if (usingMockData) {
+          showNotification('Image upload not available in mock mode', 'error');
+        }
+        return null;
+      }
+
+      setUploadingImage(true);
+      try {
+        const result = await uploadImage(selectedFile, supabase);
+        setFormData(prev => ({ ...prev, image_url: result.url }));
+        showNotification('Image uploaded successfully!');
+        return result.url;
+      } catch (error) {
+        showNotification('Image upload failed: ' + error.message, 'error');
+        return null;
+      } finally {
+        setUploadingImage(false);
+      }
+    };
+
+    const handleSubmit = async (e) => {
       e.preventDefault();
-      onSave(formData, 'course');
+      
+      // Validate required fields
+      if (!formData.title.trim()) {
+        showNotification('Title is required', 'error');
+        return;
+      }
+      
+      if (!formData.description.trim()) {
+        showNotification('Description is required', 'error');
+        return;
+      }
+
+      console.log('📝 Form submitted with data:', formData);
+      setIsSubmitting(true);
+      
+      try {
+        let finalFormData = { ...formData };
+        
+        // Upload image if selected
+        if (selectedFile && !usingMockData) {
+          const uploadedUrl = await handleImageUpload();
+          if (uploadedUrl) {
+            finalFormData.image_url = uploadedUrl;
+          }
+        }
+        
+        await onSave(finalFormData, 'course');
+        console.log('✅ Form save completed successfully');
+      } catch (error) {
+        console.error('❌ Form save failed:', error);
+        // Error handling is done in onSave function
+      } finally {
+        setIsSubmitting(false);
+      }
     };
 
     return (
@@ -925,12 +1193,19 @@ const AdminTool = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
+        onClick={(e) => {
+          // Close modal if clicking on backdrop
+          if (e.target === e.currentTarget) {
+            onCancel();
+          }
+        }}
       >
         <motion.div
           className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-2xl font-bold text-gray-800">
@@ -938,7 +1213,8 @@ const AdminTool = () => {
             </h3>
             <button
               onClick={onCancel}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 hover:text-gray-600 p-2"
+              disabled={isSubmitting}
             >
               <X size={24} />
             </button>
@@ -946,23 +1222,31 @@ const AdminTool = () => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Title <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
                 value={formData.title}
                 onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Enter course title"
+                disabled={isSubmitting}
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description <span className="text-red-500">*</span>
+              </label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                 rows="3"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Enter course description"
+                disabled={isSubmitting}
                 required
               />
             </div>
@@ -974,6 +1258,7 @@ const AdminTool = () => {
                   value={formData.age_group}
                   onChange={(e) => setFormData(prev => ({ ...prev, age_group: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  disabled={isSubmitting}
                 >
                   <option value="2-4">2-4 Years</option>
                   <option value="5-8">5-8 Years</option>
@@ -987,6 +1272,7 @@ const AdminTool = () => {
                   value={formData.difficulty}
                   onChange={(e) => setFormData(prev => ({ ...prev, difficulty: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  disabled={isSubmitting}
                 >
                   <option value="Beginner">Beginner</option>
                   <option value="Easy">Easy</option>
@@ -1005,6 +1291,8 @@ const AdminTool = () => {
                   onChange={(e) => setFormData(prev => ({ ...prev, image_emoji: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-center text-2xl"
                   placeholder="🎨"
+                  maxLength="2"
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -1016,6 +1304,7 @@ const AdminTool = () => {
                   onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="15 mins"
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -1027,27 +1316,81 @@ const AdminTool = () => {
                   onChange={(e) => setFormData(prev => ({ ...prev, lessons: parseInt(e.target.value) || 0 }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                   min="0"
+                  max="100"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
 
-            <div className="flex space-x-3 pt-4">
+            {/* Image Upload Section */}
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Course Image</label>
+              <div className="flex items-start space-x-4">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-purple-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="course-image-upload"
+                      disabled={isSubmitting || uploadingImage}
+                    />
+                    <label 
+                      htmlFor="course-image-upload" 
+                      className="cursor-pointer flex flex-col items-center space-y-2"
+                    >
+                      <ImageIcon size={32} className="text-gray-400" />
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-purple-600">Click to upload</span> or drag and drop
+                      </div>
+                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</div>
+                    </label>
+                  </div>
+                  {selectedFile && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      Selected: {selectedFile.name}
+                    </div>
+                  )}
+                </div>
+                
+                {imagePreview && (
+                  <div className="w-24 h-24">
+                    <img
+                      src={imagePreview}
+                      alt="Preview"
+                      className="w-full h-full object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {uploadingImage && (
+                <div className="mt-2 flex items-center space-x-2 text-sm text-purple-600">
+                  <Upload size={16} className="animate-bounce" />
+                  <span>Uploading image...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-3 pt-4 border-t">
               <motion.button
                 type="submit"
-                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-medium flex items-center justify-center"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={loading}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting}
               >
                 <Save size={18} className="mr-2" />
-                {loading ? 'Saving...' : 'Save Course'}
+                {isSubmitting ? 'Saving...' : `Save Course`}
               </motion.button>
               <motion.button
                 type="button"
                 onClick={onCancel}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting}
               >
                 Cancel
               </motion.button>
@@ -1065,12 +1408,79 @@ const AdminTool = () => {
       content: article?.content || '',
       category: article?.category || 'tips',
       image_emoji: article?.image_emoji || '📝',
+      image_url: article?.image_url || '',
       read_time: article?.read_time || ''
     });
 
-    const handleSubmit = (e) => {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imagePreview, setImagePreview] = useState(article?.image_url || null);
+    const [selectedFile, setSelectedFile] = useState(null);
+
+    const handleImageSelect = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const validation = validateImage(file);
+      if (!validation.isValid) {
+        showNotification(validation.error, 'error');
+        return;
+      }
+
+      setSelectedFile(file);
+      
+      try {
+        const preview = await createImagePreview(file);
+        setImagePreview(preview);
+      } catch (error) {
+        showNotification('Error creating preview', 'error');
+      }
+    };
+
+    const handleImageUpload = async () => {
+      if (!selectedFile || usingMockData) {
+        if (usingMockData) {
+          showNotification('Image upload not available in mock mode', 'error');
+        }
+        return null;
+      }
+
+      setUploadingImage(true);
+      try {
+        const result = await uploadImage(selectedFile, supabase);
+        setFormData(prev => ({ ...prev, image_url: result.url }));
+        showNotification('Image uploaded successfully!');
+        return result.url;
+      } catch (error) {
+        showNotification('Image upload failed: ' + error.message, 'error');
+        return null;
+      } finally {
+        setUploadingImage(false);
+      }
+    };
+
+    const handleSubmit = async (e) => {
       e.preventDefault();
-      onSave(formData, 'article');
+      
+      setIsSubmitting(true);
+      
+      try {
+        let finalFormData = { ...formData };
+        
+        // Upload image if selected
+        if (selectedFile && !usingMockData) {
+          const uploadedUrl = await handleImageUpload();
+          if (uploadedUrl) {
+            finalFormData.image_url = uploadedUrl;
+          }
+        }
+        
+        await onSave(finalFormData, 'article');
+      } catch (error) {
+        console.error('❌ Form save failed:', error);
+      } finally {
+        setIsSubmitting(false);
+      }
     };
 
     return (
@@ -1169,23 +1579,75 @@ const AdminTool = () => {
               </div>
             </div>
 
+            {/* Image Upload Section */}
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Article Image</label>
+              <div className="flex items-start space-x-4">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-green-400 transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                      id="article-image-upload"
+                      disabled={isSubmitting || uploadingImage}
+                    />
+                    <label 
+                      htmlFor="article-image-upload" 
+                      className="cursor-pointer flex flex-col items-center space-y-2"
+                    >
+                      <ImageIcon size={32} className="text-gray-400" />
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-green-600">Click to upload</span> or drag and drop
+                      </div>
+                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</div>
+                    </label>
+                  </div>
+                  {selectedFile && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      Selected: {selectedFile.name}
+                    </div>
+                  )}
+                </div>
+                
+                {imagePreview && (
+                  <div className="w-24 h-24">
+                    <img
+                      src={imagePreview}
+                      alt="Preview"
+                      className="w-full h-full object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {uploadingImage && (
+                <div className="mt-2 flex items-center space-x-2 text-sm text-green-600">
+                  <Upload size={16} className="animate-bounce" />
+                  <span>Uploading image...</span>
+                </div>
+              )}
+            </div>
+
             <div className="flex space-x-3 pt-4">
               <motion.button
                 type="submit"
-                className="flex-1 bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-lg font-medium flex items-center justify-center"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                disabled={loading}
+                className="flex-1 bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-lg font-medium flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting || uploadingImage}
               >
                 <Save size={18} className="mr-2" />
-                {loading ? 'Saving...' : 'Save Article'}
+                {isSubmitting ? 'Saving...' : 'Save Article'}
               </motion.button>
               <motion.button
                 type="button"
                 onClick={onCancel}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                whileHover={!isSubmitting ? { scale: 1.02 } : {}}
+                whileTap={!isSubmitting ? { scale: 0.98 } : {}}
+                disabled={isSubmitting || uploadingImage}
               >
                 Cancel
               </motion.button>
@@ -1196,92 +1658,330 @@ const AdminTool = () => {
     );
   };
 
-  const Settings = () => (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      variants={staggerContainer}
-      className="space-y-6"
-    >
-      <ErrorDisplay />
-      <DataStatus />
-      
-      <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">General Settings</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Site Name</label>
-            <input
-              type="text"
-              defaultValue="Happy Art Town"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <textarea
-              defaultValue="Where creativity comes alive! Join thousands of young artists learning to draw, paint, and create amazing art!"
-              rows="3"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-        </div>
-      </motion.div>
+  const Settings = () => {
+    const [settingsForm, setSettingsForm] = useState({
+      site_name: settings.site_name || '',
+      site_description: settings.site_description || '',
+      contact_email: settings.contact_email || '',
+      max_courses_per_user: settings.max_courses_per_user || '10'
+    });
 
-      <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">Database Settings</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Supabase URL</label>
-            <input
-              type="text"
-              placeholder="https://your-project.supabase.co"
-              defaultValue={supabaseUrl || ''}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Supabase Key</label>
-            <input
-              type="password"
-              placeholder="Your Supabase anon key"
-              defaultValue={supabaseAnonKey ? '••••••••••••••••' : ''}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <p className="text-sm text-gray-600">
-              <strong>Status:</strong> {usingMockData ? '❌ Not connected' : '✅ Connected'}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">
-              {usingMockData 
-                ? 'Add your Supabase credentials to .env file to connect to your database'
-                : 'Successfully connected to your Supabase database'
-              }
-            </p>
-          </div>
-        </div>
-      </motion.div>
+    // Update form when settings are loaded
+    useEffect(() => {
+      setSettingsForm({
+        site_name: settings.site_name || '',
+        site_description: settings.site_description || '',
+        contact_email: settings.contact_email || '',
+        max_courses_per_user: settings.max_courses_per_user || '10'
+      });
+    }, [settings]);
 
-      <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">Database Schema</h3>
-        <div className="space-y-4">
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h4 className="font-medium text-gray-700 mb-2">Required Tables:</h4>
-            <div className="text-sm text-gray-600 space-y-1">
-              <p><code className="bg-gray-200 px-2 py-1 rounded">courses</code> - Store course information</p>
-              <p><code className="bg-gray-200 px-2 py-1 rounded">articles</code> - Store article content</p>
+    const handleSettingsSubmit = (e) => {
+      e.preventDefault();
+      saveSettings(settingsForm);
+    };
+
+    return (
+      <motion.div
+        initial="initial"
+        animate="animate"
+        variants={staggerContainer}
+        className="space-y-6 max-w-5xl w-full relative z-0"
+      >
+        <ErrorDisplay />
+        <DataStatus />
+        
+        <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg w-full">
+          <h3 className="text-xl font-bold text-gray-800 mb-4">General Settings</h3>
+          <form onSubmit={handleSettingsSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Site Name</label>
+              <input
+                type="text"
+                value={settingsForm.site_name}
+                onChange={(e) => setSettingsForm(prev => ({ ...prev, site_name: e.target.value }))}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Happy Art Town"
+                disabled={settingsLoading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                value={settingsForm.site_description}
+                onChange={(e) => setSettingsForm(prev => ({ ...prev, site_description: e.target.value }))}
+                rows="3"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="Where creativity comes alive! Join thousands of young artists learning to draw, paint, and create amazing art!"
+                disabled={settingsLoading}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email</label>
+                <input
+                  type="email"
+                  value={settingsForm.contact_email}
+                  onChange={(e) => setSettingsForm(prev => ({ ...prev, contact_email: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="admin@happyarttown.com"
+                  disabled={settingsLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max Courses Per User</label>
+                <input
+                  type="number"
+                  value={settingsForm.max_courses_per_user}
+                  onChange={(e) => setSettingsForm(prev => ({ ...prev, max_courses_per_user: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  min="1"
+                  max="100"
+                  disabled={settingsLoading}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <motion.button
+                type="submit"
+                className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium flex items-center space-x-2 disabled:opacity-50"
+                whileHover={!settingsLoading ? { scale: 1.02 } : {}}
+                whileTap={!settingsLoading ? { scale: 0.98 } : {}}
+                disabled={settingsLoading}
+              >
+                <Save size={16} />
+                <span>{settingsLoading ? 'Saving...' : 'Save General Settings'}</span>
+              </motion.button>
+            </div>
+          </form>
+        </motion.div>
+
+        <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg w-full">
+          <h3 className="text-xl font-bold text-gray-800 mb-4">Database Settings</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Supabase URL</label>
+              <input
+                type="text"
+                placeholder="https://your-project.supabase.co"
+                defaultValue={supabaseUrl || ''}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+                readOnly
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Supabase Key</label>
+              <input
+                type="password"
+                placeholder="Your Supabase anon key"
+                defaultValue={supabaseAnonKey ? '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••' : ''}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+                readOnly
+              />
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${
+                  usingMockData ? 'bg-red-400' : 'bg-green-400'
+                }`}></div>
+                <div>
+                  <p className="text-sm text-gray-600">
+                    <strong>Status:</strong> {usingMockData ? '❌ Not connected' : '✅ Connected'}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {usingMockData 
+                      ? 'Add your Supabase credentials to .env file to connect to your database'
+                      : 'Successfully connected to your Supabase database'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <motion.button
+                onClick={() => { loadData(); loadSettings(); }}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg font-medium flex items-center space-x-2"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={loading || settingsLoading}
+              >
+                <RefreshCw size={16} className={(loading || settingsLoading) ? 'animate-spin' : ''} />
+                <span>Test Connection</span>
+              </motion.button>
             </div>
           </div>
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <p className="text-sm text-blue-700">
-              💡 <strong>Tip:</strong> Create these tables in your Supabase dashboard with the required columns to enable full functionality.
-            </p>
+        </motion.div>
+
+        <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg w-full">
+          <h3 className="text-xl font-bold text-gray-800 mb-4">Database Schema</h3>
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h4 className="font-medium text-gray-700 mb-2">Required Tables:</h4>
+              <div className="text-sm text-gray-600 space-y-1">
+                <p><code className="bg-gray-200 px-2 py-1 rounded">courses</code> - Store course information</p>
+                <p><code className="bg-gray-200 px-2 py-1 rounded">articles</code> - Store article content</p>
+                <p><code className="bg-gray-200 px-2 py-1 rounded">settings</code> - Store application settings</p>
+              </div>
+            </div>
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <p className="text-sm text-blue-700">
+                💡 <strong>Tip:</strong> Create these tables in your Supabase dashboard with the required columns to enable full functionality.
+              </p>
+            </div>
+            <div className="bg-green-50 p-4 rounded-lg">
+              <h4 className="font-medium text-green-700 mb-2">SQL Commands for Table Creation:</h4>
+              <div className="relative">
+                <pre className="text-xs text-green-600 bg-green-100 p-3 rounded overflow-x-auto max-h-96 overflow-y-auto">
+{`-- Create courses table
+CREATE TABLE courses (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  age_group VARCHAR(10),
+  image_emoji VARCHAR(10),
+  duration VARCHAR(50),
+  lessons INTEGER DEFAULT 0,
+  difficulty VARCHAR(50),
+  is_published BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create articles table  
+CREATE TABLE articles (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  excerpt TEXT,
+  content TEXT,
+  category VARCHAR(50),
+  image_emoji VARCHAR(10),
+  read_time VARCHAR(50),
+  is_published BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create settings table
+CREATE TABLE settings (
+  id SERIAL PRIMARY KEY,
+  key VARCHAR(255) UNIQUE NOT NULL,
+  value TEXT,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+-- Create policies (adjust as needed for your security requirements)
+CREATE POLICY "Enable read access for all users" ON courses FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON courses FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON courses FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON courses FOR DELETE USING (true);
+
+CREATE POLICY "Enable read access for all users" ON articles FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON articles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON articles FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON articles FOR DELETE USING (true);
+
+CREATE POLICY "Enable read access for all users" ON settings FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON settings FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON settings FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON settings FOR DELETE USING (true);
+
+-- Insert default settings
+INSERT INTO settings (key, value, description) VALUES 
+('site_name', 'Happy Art Town', 'Name of the website'),
+('site_description', 'Where creativity comes alive! Join thousands of young artists learning to draw, paint, and create amazing art!', 'Website description'),
+('contact_email', 'admin@happyarttown.com', 'Contact email for the site'),
+('max_courses_per_user', '10', 'Maximum courses a user can create');`}
+                </pre>
+                <motion.button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`-- Create courses table
+CREATE TABLE courses (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  age_group VARCHAR(10),
+  image_emoji VARCHAR(10),
+  duration VARCHAR(50),
+  lessons INTEGER DEFAULT 0,
+  difficulty VARCHAR(50),
+  is_published BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create articles table  
+CREATE TABLE articles (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  excerpt TEXT,
+  content TEXT,
+  category VARCHAR(50),
+  image_emoji VARCHAR(10),
+  read_time VARCHAR(50),
+  is_published BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create settings table
+CREATE TABLE settings (
+  id SERIAL PRIMARY KEY,
+  key VARCHAR(255) UNIQUE NOT NULL,
+  value TEXT,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+-- Create policies (adjust as needed for your security requirements)
+CREATE POLICY "Enable read access for all users" ON courses FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON courses FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON courses FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON courses FOR DELETE USING (true);
+
+CREATE POLICY "Enable read access for all users" ON articles FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON articles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON articles FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON articles FOR DELETE USING (true);
+
+CREATE POLICY "Enable read access for all users" ON settings FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON settings FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON settings FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON settings FOR DELETE USING (true);
+
+-- Insert default settings
+INSERT INTO settings (key, value, description) VALUES 
+('site_name', 'Happy Art Town', 'Name of the website'),
+('site_description', 'Where creativity comes alive! Join thousands of young artists learning to draw, paint, and create amazing art!', 'Website description'),
+('contact_email', 'admin@happyarttown.com', 'Contact email for the site'),
+('max_courses_per_user', '10', 'Maximum courses a user can create');`);
+                    showNotification('SQL copied to clipboard!');
+                  }}
+                  className="absolute top-2 right-2 p-2 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Copy SQL
+                </motion.button>
+              </div>
+            </div>
           </div>
-        </div>
+        </motion.div>
       </motion.div>
-    </motion.div>
-  );
+    )
+  };
 
   // Main render function
   const renderActiveSection = () => {
@@ -1306,7 +2006,7 @@ const AdminTool = () => {
       <div className="ml-64">
         <Header />
         
-        <main className="p-6">
+        <main className="p-6 relative z-0">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -1314,6 +2014,7 @@ const AdminTool = () => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
+              className="relative z-0"
             >
               {renderActiveSection()}
             </motion.div>
@@ -1352,7 +2053,7 @@ const AdminTool = () => {
         <Notification />
       </AnimatePresence>
 
-      {loading && (
+      {(loading || settingsLoading) && (
         <motion.div
           className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50"
           initial={{ opacity: 0 }}
