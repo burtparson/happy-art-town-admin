@@ -7,6 +7,12 @@ import {
   CheckCircle, Upload, ImageIcon
 } from 'lucide-react';
 
+// Authentication imports
+// Use MockAuthContext for testing without Supabase setup
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+// import { AuthProvider, useAuth } from './contexts/AuthContext'; // Use this for real Supabase
+import ProtectedRoute from './components/ProtectedRoute';
+
 // Real Supabase client setup
 import { createClient } from '@supabase/supabase-js'
 import { uploadImage, validateImage, createImagePreview, deleteImage } from './lib/imageUpload'
@@ -98,6 +104,7 @@ const mockSettingsData = {
 };
 
 const AdminTool = () => {
+  const { user, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [courses, setCourses] = useState([]);
   const [articles, setArticles] = useState([]);
@@ -274,6 +281,15 @@ const AdminTool = () => {
   const showNotification = (message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to logout?')) {
+      const { error } = await signOut();
+      if (error) {
+        showNotification('Error logging out: ' + error.message, 'error');
+      }
+    }
   };
 
   const handlePublishToggle = async (item, type) => {
@@ -654,12 +670,12 @@ const AdminTool = () => {
 
   const Sidebar = () => (
     <motion.div 
-      className="bg-white shadow-lg w-64 min-h-screen fixed left-0 top-0 z-50"
+      className="bg-white shadow-lg w-64 min-h-screen fixed left-0 top-0 z-50 flex flex-col"
       initial={{ x: -100, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="p-6">
+      <div className="p-6 flex-1">
         <div className="flex items-center space-x-3 mb-8">
           <div className="text-3xl">🎨</div>
           <div>
@@ -691,6 +707,33 @@ const AdminTool = () => {
             </motion.button>
           ))}
         </nav>
+      </div>
+
+      {/* User section */}
+      <div className="p-6 border-t bg-gray-50">
+        <div className="flex items-center space-x-3 mb-4">
+          <div className="w-10 h-10 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-medium">
+            {user?.user_metadata?.full_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 truncate">
+              {user?.user_metadata?.full_name || 'Admin User'}
+            </p>
+            <p className="text-xs text-gray-500 truncate">
+              {user?.email}
+            </p>
+          </div>
+        </div>
+        
+        <motion.button
+          onClick={handleLogout}
+          className="w-full flex items-center space-x-2 px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <LogOut size={18} />
+          <span className="text-sm font-medium">Logout</span>
+        </motion.button>
       </div>
     </motion.div>
   );
@@ -1666,6 +1709,13 @@ const AdminTool = () => {
       max_courses_per_user: settings.max_courses_per_user || '10'
     });
 
+    const [profileForm, setProfileForm] = useState({
+      full_name: user?.user_metadata?.full_name || '',
+      email: user?.email || ''
+    });
+
+    const [profileLoading, setProfileLoading] = useState(false);
+
     // Update form when settings are loaded
     useEffect(() => {
       setSettingsForm({
@@ -1676,9 +1726,42 @@ const AdminTool = () => {
       });
     }, [settings]);
 
+    // Update profile form when user data changes
+    useEffect(() => {
+      setProfileForm({
+        full_name: user?.user_metadata?.full_name || '',
+        email: user?.email || ''
+      });
+    }, [user]);
+
     const handleSettingsSubmit = (e) => {
       e.preventDefault();
       saveSettings(settingsForm);
+    };
+
+    const handleProfileSubmit = async (e) => {
+      e.preventDefault();
+      
+      setProfileLoading(true);
+      try {
+        // Update user profile using Supabase auth
+        const { error } = await supabase.auth.updateUser({
+          data: {
+            full_name: profileForm.full_name
+          }
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        showNotification('Profile updated successfully!');
+      } catch (error) {
+        console.error('Profile update error:', error);
+        showNotification('Error updating profile: ' + error.message, 'error');
+      } finally {
+        setProfileLoading(false);
+      }
     };
 
     return (
@@ -1690,6 +1773,22 @@ const AdminTool = () => {
       >
         <ErrorDisplay />
         <DataStatus />
+        
+        {/* Hidden Profile Settings - Only Update Button Visible */}
+        <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg w-full">
+          <div className="flex justify-end">
+            <motion.button
+              onClick={handleProfileSubmit}
+              className="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg font-medium flex items-center space-x-2 disabled:opacity-50"
+              whileHover={!profileLoading ? { scale: 1.02 } : {}}
+              whileTap={!profileLoading ? { scale: 0.98 } : {}}
+              disabled={profileLoading}
+            >
+              <Save size={16} />
+              <span>{profileLoading ? 'Updating...' : 'Update Profile'}</span>
+            </motion.button>
+          </div>
+        </motion.div>
         
         <motion.div variants={fadeInUp} className="bg-white p-6 rounded-xl shadow-lg w-full">
           <h3 className="text-xl font-bold text-gray-800 mb-4">General Settings</h3>
@@ -2072,4 +2171,15 @@ INSERT INTO settings (key, value, description) VALUES
   );
 };
 
-export default AdminTool;
+// Main App component with authentication
+const App = () => {
+  return (
+    <AuthProvider>
+      <ProtectedRoute>
+        <AdminTool />
+      </ProtectedRoute>
+    </AuthProvider>
+  );
+};
+
+export default App;

@@ -670,7 +670,7 @@ const AdminTool = () => {
 
   const Sidebar = () => (
     <motion.div 
-      className="bg-white shadow-lg w-64 min-h-screen fixed left-0 top-0 z-50 flex flex-col"
+      className="bg-white shadow-lg w-96 min-h-screen fixed left-0 top-0 z-50 flex flex-col"
       initial={{ x: -100, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.5 }}
@@ -740,7 +740,7 @@ const AdminTool = () => {
 
   const Header = () => (
     <motion.div 
-      className="bg-white shadow-sm border-b p-4 ml-64 relative z-10"
+      className="bg-white shadow-sm border-b p-4 ml-96 relative z-10"
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
     >
@@ -778,6 +778,17 @@ const AdminTool = () => {
               <span>Add {activeTab.slice(0, -1)}</span>
             </motion.button>
           )}
+          
+          <motion.button
+            onClick={handleLogout}
+            className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:bg-red-100 hover:text-red-600 rounded-lg transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            title="Logout"
+          >
+            <LogOut size={18} />
+            <span className="hidden md:inline">Logout</span>
+          </motion.button>
         </div>
       </div>
     </motion.div>
@@ -2129,7 +2140,7 @@ INSERT INTO settings (key, value, description) VALUES
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
       
-      <div className="ml-64">
+      <div className="ml-96">
         <Header />
         
         <main className="p-6 relative z-0">
